@@ -346,7 +346,7 @@ if(mode=='fastq'){
 
   shell:
 	file_tag_new=file_tag
-	bwa_threads  = [params.cpu.intdiv(2) - 1,1].max()
+	bwa_threads  = [params.cpu.intdiv(1) - 2,1].max()
   sort_threads = [params.cpu.intdiv(2) - 1,1].max()
   sort_mem     = [params.mem.intdiv(4),1].max()
   file_tag_new=file_tag_new+"${read_group}"
@@ -425,6 +425,7 @@ if(params.input_file){
 	    sambamba sort -t !{params.cpu} -m !{params.mem}G --tmpdir=!{file_name}_tmp -o !{file_name}_COsorted.bam !{bam}
 	    qualimap bamqc -nt !{params.cpu} !{feature} --skip-duplicated -bam !{file_name}_COsorted.bam --java-mem-size=!{params.mem}G -outdir !{file_name} -outformat html
 	    sambamba flagstat -t !{params.cpu} !{bam} > !{file_name}.stats.txt
+	    rm -f !{file_name}_COsorted.bam	
 	    '''
 	}
 
@@ -467,16 +468,17 @@ if(params.input_file){
       set val(file_tag), file("${file_tag_new}.bam"), file("${file_tag_new}.bam.bai") into bam_bai_files
 
       shell:
-      file_tag_new=file_tag
-      for( rgtmp in read_group ){
-        file_tag_new=file_tag_new+"${rgtmp}"
-      }
+      file_tag_new=file_tag+"_M${nb_groups}"
+      //for( rgtmp in read_group ){
+        //file_tag_new=file_tag_new+"${rgtmp}"
+      //}
+      //file_tag_new=file_tag_new+"_${nb_groups}"
       if(params.trim) file_tag_new=file_tag_new+'_trimmed'
       if(params.alt)  file_tag_new=file_tag_new+'_alt'
       if(nb_groups>1){
          merge_threads  = [params.cpu.intdiv(2) - 1,1].max()
 	      sort_threads = [params.cpu.intdiv(2) - 1,1].max()
-        sort_mem     = params.mem.div(2)
+        sort_mem     = params.mem.intdiv(sort_threads+1)
 	      bam_files=" "
 	      for( bam in bams ){
         	bam_files=bam_files+" ${bam}"
@@ -488,10 +490,14 @@ if(params.input_file){
 	        samblaster_opt='-M '
 	      }
         '''
-	sambamba merge -t !{merge_threads} -l 0 /dev/stdout !{bam_files} | \\
-        sambamba view -h /dev/stdin | samblaster !{samblaster_opt} --addMateTags | \\
-        sambamba view -S -f bam -l 0 /dev/stdin | \\
-        sambamba sort -t !{sort_threads} -m !{sort_mem}G --tmpdir=!{file_tag}_tmp -o !{file_tag_new}.bam /dev/stdin
+	#sambamba merge -t !{merge_threads} -l 0 /dev/stdout !{bam_files} | \\
+        #sambamba view -h /dev/stdin | samblaster !{samblaster_opt} --addMateTags | \\
+        #sambamba view -S -f bam -l 0 /dev/stdin | \\
+        #sambamba sort -t !{sort_threads} -m !{sort_mem}G --tmpdir=!{file_tag}_tmp -o !{file_tag_new}.bam /dev/stdin
+	samtools merge -@!{merge_threads} -f -n /dev/stdout !{bam_files} | \\
+	samtools  fixmate -@!{merge_threads} /dev/stdin /dev/stdout | \\
+	samtools sort -m !{sort_mem}G -@!{sort_threads} -o !{file_tag_new}.bam /dev/stdin
+	samtools index !{file_tag_new}.bam
         '''
       }else{
         '''
